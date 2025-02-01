@@ -18,6 +18,20 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY ?? '',
 });
 
+interface Artist {
+  name: string;
+  genres?: string[];
+  popularity?: number;
+  url?: string;
+}
+
+interface Track {
+  name: string;
+  artists: string[];
+  album: string;
+  url: string;
+}
+
 async function getMusicNerdData(spotifyId: string) {
   try {
     const artistResponse = await axios.post(`${MUSICNERD_BASE_URL}/api/findArtistBySpotifyID`, {
@@ -97,7 +111,7 @@ export async function POST(req: Request) {
     }
 
     // Build context message with stronger emphasis on current track
-    let systemMessage = `You are Zane, a music expert who MUST acknowledge the exact track playing right now.
+    let systemMessage = `You are Zane, a music nerd who MUST acknowledge the exact track playing right now.
 
 CURRENT MUSIC CONTEXT (This is real-time data from Spotify):`;
 
@@ -112,7 +126,7 @@ REQUIRED: Your first words must reference this exact track that's playing right 
 
     // Add the rest of the context
     if (topArtists.length) {
-      systemMessage += `\n\nTop Artists: ${topArtists.slice(0,3).map(a => a.name).join(', ')}`;
+      systemMessage += `\n\nTop Artists: ${topArtists.slice(0,3).map((a: Artist) => a.name).join(', ')}`;
     }
 
     const contextMessage = `${ZANE_LOWE_PROMPT}\n\n${systemMessage}`;
