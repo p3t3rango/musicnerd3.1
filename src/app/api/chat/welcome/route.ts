@@ -4,6 +4,14 @@ import { NextResponse } from 'next/server';
 import { getCurrentTrack, getRecentlyPlayed, getTopTracks } from '@/utils/spotify';
 import { Anthropic } from '@anthropic-ai/sdk';
 
+interface Track {
+  name: string;
+  artists: { name: string }[];
+  album: string;
+  url: string;
+  playedAt?: string;
+}
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY ?? '',
 });
@@ -30,11 +38,11 @@ If they're currently playing something, react to that first. If not, comment on 
     }
 
     if (recentTracks.length) {
-      welcomePrompt += `\n\nTheir recent tracks: ${recentTracks.slice(0,2).map(t => `"${t.name}" by ${t.artists[0]}`).join(', ')}`;
+      welcomePrompt += `\n\nTheir recent tracks: ${recentTracks.slice(0,2).map((t: Track) => `"${t.name}" by ${t.artists[0].name}`).join(', ')}`;
     }
 
     if (topTracks.length) {
-      welcomePrompt += `\n\nTheir current favorites: ${topTracks.slice(0,2).map(t => `"${t.name}" by ${t.artists[0]}`).join(', ')}`;
+      welcomePrompt += `\n\nTheir current favorites: ${topTracks.slice(0,2).map((t: Track) => `"${t.name}" by ${t.artists[0].name}`).join(', ')}`;
     }
 
     const response = await anthropic.messages.create({
