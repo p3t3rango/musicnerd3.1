@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-pink: #FF1493;
+  --background: #000000;
+  --text: #FFFFFF;
+}
+
+body {
+  color: var(--text);
+  background-color: var(--background);
+}
+
+.chat-container {
+  background: rgba(255, 20, 147, 0.1);
+  border: 1px solid var(--brand-pink);
+  border-radius: 1rem;
+}
+
+.message-bubble {
+  max-width: 80%;
+  border-radius: 1rem;
+  padding: 1rem;
+  margin: 0.5rem;
+}
+
+.user-message {
+  background-color: var(--brand-pink);
+  color: white;
+  margin-left: auto;
+}
+
+.assistant-message {
+  background-color: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--brand-pink);
+  color: white;
+}
+
+.input-container {
+  border: 2px solid var(--brand-pink);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.send-button {
+  background-color: var(--brand-pink);
+  transition: all 0.3s ease;
+}
+
+.send-button:hover {
+  background-color: #FF69B4;
+  transform: scale(1.05);
+} 
