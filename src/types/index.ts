@@ -30,10 +30,13 @@ export interface SpotifyTrack {
       bandcamp?: string;
       beatport?: string;
     };
-    supportLinks?: {
-      direct: string[];
-      streaming: string[];
-      purchase: string[];
+    supportLinks: {
+      merch?: string[];    // Store URLs
+      bandcamp?: string;   // Bandcamp URL
+      vinyl?: string[];    // Vinyl purchase URLs
+      official?: string;   // Artist's official store
+      soundxyz?: string;   // Sound.xyz profile
+      other?: string[];    // Other support URLs
     };
   };
 }

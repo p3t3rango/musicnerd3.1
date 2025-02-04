@@ -1,5 +1,6 @@
 // @ts-nocheck
 import SpotifyWebApi from 'spotify-web-api-node';
+import { getMusicBrainzData } from './musicbrainz';
 
 export const spotifyApi = new SpotifyWebApi({
   clientId: process.env.SPOTIFY_CLIENT_ID,
@@ -23,16 +24,27 @@ export const getCurrentTrack = async (accessToken: string) => {
     }
 
     const track = data.body.item;
-    // @ts-ignore - We know this is a track
     const artistName = track.artists[0].name;
-    console.log('Track ID:', track.id);
+    
+    // Fetch artist support links
+    const artistData = await getMusicBrainzData(artistName);
     
     return {
       name: track.name,
-      // @ts-ignore - We know these properties exist
       artists: track.artists.map(artist => artist.name),
       album: track.album.name,
-      url: track.external_urls.spotify
+      url: track.external_urls.spotify,
+      artistInfo: {
+        name: artistName,
+        supportLinks: {
+          merch: artistData.merchLinks,
+          bandcamp: artistData.bandcampUrl,
+          vinyl: artistData.vinylLinks,
+          official: artistData.officialStore,
+          soundxyz: artistData.soundxyzProfile,
+          other: artistData.otherSupportLinks
+        }
+      }
     };
 
   } catch (error) {

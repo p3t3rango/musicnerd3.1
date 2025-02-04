@@ -53,27 +53,29 @@ export default function Home() {
     getWelcome();
   }, [status, chat.length]);
 
-  // Function to fetch current track
-  const getCurrentTrack = async () => {
-    if (!session?.accessToken) return;
-    
-    try {
-      const response = await fetch('/api/spotify/now-playing');
-      const data = await response.json();
-      
-      if (data.playing && data.track) {
-        const newTrackId = `${data.track.name}-${data.track.artists[0].name}`;
-        if (newTrackId !== lastChecked) {
-          setCurrentTrack(data.track);
-          setLastChecked(newTrackId);
+  // Poll for current track
+  useEffect(() => {
+    if (!session) return;
+
+    const checkCurrentTrack = async () => {
+      try {
+        const response = await fetch('/api/spotify/now-playing/check');
+        if (response.status === 200) {
+          const trackData = await fetch('/api/spotify/now-playing').then(res => res.json());
+          if (trackData.playing) {
+            setCurrentTrack(trackData.track);
+          }
         }
-      } else {
-        setCurrentTrack(null);
+      } catch (error) {
+        console.error('Error checking current track:', error);
       }
-    } catch (error) {
-      console.error('Error fetching current track:', error);
-    }
-  };
+    };
+
+    // Check immediately and then every 30 seconds
+    checkCurrentTrack();
+    const interval = setInterval(checkCurrentTrack, 30000);
+    return () => clearInterval(interval);
+  }, [session]);
 
   // Handle chat submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -102,19 +104,31 @@ export default function Home() {
         }),
       });
       
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       
       const data = await response.json();
+      
+      // Debug log the response
+      console.log('Frontend received response:', {
+        responseData: data,
+        contentLength: data.content?.length,
+        content: data.content
+      });
+
       const assistantMessage: ChatMessageType = { 
         role: 'assistant', 
-        content: data.response,
+        content: data.content,
         currentTrack: data.currentTrack,
         artistInfo: data.artistInfo
       };
       
+      console.log('Message being added to chat:', assistantMessage);
+      
       setChat(prev => [...prev, assistantMessage]);
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Chat Error:', error);
       const errorMessage: ChatMessageType = { 
         role: 'assistant', 
         content: 'Sorry, I encountered an error. Please try again.' 
@@ -124,23 +138,6 @@ export default function Home() {
       setLoading(false);
     }
   };
-
-  // Check for track changes
-  useEffect(() => {
-    if (session?.accessToken) {
-      getCurrentTrack();
-      const interval = setInterval(async () => {
-        const response = await fetch('/api/spotify/now-playing/check', {
-          method: 'HEAD'
-        });
-        if (response.status === 200) {
-          getCurrentTrack();
-        }
-      }, 30000);
-
-      return () => clearInterval(interval);
-    }
-  }, [session]);
 
   const handleReauthorize = async () => {
     await signOut({ redirect: false });
@@ -183,22 +180,24 @@ export default function Home() {
           )}
         </div>
 
-        {/* Now Playing Widget - Make sure this is visible */}
-        {isPlaying && currentTrack && (
-          <div className="mb-4 p-4 bg-white/10 rounded-lg">
-            <p className="text-white/80">Currently Playing:</p>
-            <div className="text-white">
-              <p className="font-bold text-lg">
-                {currentTrack.name}
-              </p>
-              <p className="text-white/80">
-                {currentTrack.artists.map((artist: string) => artist).join(', ')}
-              </p>
-              {currentTrack.album && (
-                <p className="text-sm text-white/60">
-                  Album: {currentTrack.album}
+        {/* Now Playing Widget */}
+        {currentTrack && (
+          <div className="bg-white/10 p-4 rounded-lg mb-4">
+            <h2 className="text-white font-semibold mb-2">Now Playing</h2>
+            <div className="flex items-center gap-4">
+              <div>
+                <p className="text-white text-lg font-medium">
+                  {currentTrack.name}
                 </p>
-              )}
+                <p className="text-white/80">
+                  {currentTrack.artists.join(', ')}
+                </p>
+                {currentTrack.album && (
+                  <p className="text-white/60 text-sm">
+                    {currentTrack.album}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -208,19 +207,11 @@ export default function Home() {
           ref={chatContainerRef}
           className="chat-container h-[600px] mb-4 p-4 overflow-y-auto"
         >
-          {chat.length === 0 ? (
-            <div className="text-center text-gray-400 mt-20">
-              <div className="animate-pulse">
-                Loading...
-              </div>
-            </div>
-          ) : (
-            <>
-              {chat.map((msg, index) => (
-                <ChatMessage key={index} message={msg} />
-              ))}
-            </>
-          )}
+          <div className="max-w-full overflow-visible">
+            {chat.map((msg, index) => (
+              <ChatMessage key={index} message={msg} />
+            ))}
+          </div>
           
           {loading && (
             <div className="flex items-center justify-center p-4">
