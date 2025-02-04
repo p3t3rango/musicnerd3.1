@@ -4,69 +4,55 @@ import { TbVinyl } from 'react-icons/tb';
 
 interface SupportLinksProps {
   links: {
-    direct?: string[];
-    streaming?: string[];
-    purchase?: string[];
+    merch?: string[];
+    bandcamp?: string;
+    vinyl?: string[];
+    official?: string;
+    soundxyz?: string;
+    other?: string[];
   };
   artistName: string;
 }
 
 export const SupportLinks = ({ links, artistName }: SupportLinksProps) => {
-  if (!links.direct?.length && !links.purchase?.length) return null;
-
   return (
-    <div className="mt-4 p-4 bg-white/5 rounded-lg">
-      <h3 className="text-white/90 font-medium mb-2">Support {artistName}</h3>
+    <div className="bg-white/10 p-4 rounded-lg mt-2">
+      <h3 className="text-white/80 font-semibold mb-2">Support {artistName}</h3>
       <div className="flex flex-wrap gap-2">
-        {links.direct?.map((link, i) => {
-          if (link.includes('bandcamp')) {
-            return (
-              <a
-                key={i}
-                href={link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-3 py-2 bg-[#629aa9] text-white rounded-md hover:opacity-90 transition-opacity"
-              >
-                <FaBandcamp />
-                <span>Bandcamp</span>
-              </a>
-            );
-          }
-          if (link.includes('sound.xyz')) {
-            return (
-              <a
-                key={i}
-                href={link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-3 py-2 bg-[#8B4513] text-white rounded-md hover:opacity-90 transition-opacity"
-              >
-                <TbVinyl />
-                <span>Sound.xyz</span>
-              </a>
-            );
-          }
-          return null;
-        })}
-        
-        {links.purchase?.map((link, i) => {
-          if (link.includes('beatport')) {
-            return (
-              <a
-                key={i}
-                href={link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-3 py-2 bg-[#02FF95] text-black rounded-md hover:opacity-90 transition-opacity"
-              >
-                <SiBeatport />
-                <span>Beatport</span>
-              </a>
-            );
-          }
-          return null;
-        })}
+        {links.official && (
+          <a 
+            href={links.official} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 bg-[#1DB954] text-white rounded-md hover:bg-[#1ed760] transition-colors"
+          >
+            <FaShoppingCart className="w-4 h-4" />
+            <span>Official Store</span>
+          </a>
+        )}
+        {links.bandcamp && (
+          <a 
+            href={links.bandcamp}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 bg-[#629aa9] text-white rounded-md hover:opacity-90 transition-opacity"
+          >
+            <FaBandcamp className="w-4 h-4" />
+            <span>Bandcamp</span>
+          </a>
+        )}
+        {links.vinyl?.map((link, i) => (
+          <a 
+            key={i} 
+            href={link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 bg-[#FF1493] text-white rounded-md hover:opacity-90 transition-opacity"
+          >
+            <TbVinyl className="w-4 h-4" />
+            <span>Vinyl</span>
+          </a>
+        ))}
       </div>
     </div>
   );
