@@ -5,47 +5,25 @@ import { useSession, signIn, signOut } from 'next-auth/react';
 import Image from 'next/image';
 import ChatMessage from './components/ChatMessage';
 
-interface MusicData {
-  spotifyData: any[];
-  musicNerdData: any[];
-}
-
-interface SpotifyTrack {
-  name: string;
-  artists: { name: string }[];
-  album: string;
-  url: string;
-}
-
-interface NowPlayingResponse {
-  playing: boolean;
-  track?: SpotifyTrack;
-  message?: string;
-}
-
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  currentTrack?: {
-    name: string;
-    artists: string[];
-    album: string;
-    url: string;
-  };
-  musicProfile?: {
-    recentTracks: any[];
-    topTracks: any[];
-  };
-}
+// Move interfaces to separate types file
+import { SpotifyTrack, ChatMessage as ChatMessageType } from '@/types';
 
 export default function Home() {
   const { data: session, status } = useSession();
   const [currentTrack, setCurrentTrack] = useState<SpotifyTrack | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [message, setMessage] = useState('');
-  const [chat, setChat] = useState<ChatMessage[]>([]);
+  const [chat, setChat] = useState<ChatMessageType[]>([]);
   const [loading, setLoading] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [lastChecked, setLastChecked] = useState<string>('');
+
+  // Scroll to bottom when chat updates
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [chat]);
 
   // Get initial welcome message
   useEffect(() => {
@@ -75,40 +53,59 @@ export default function Home() {
     getWelcome();
   }, [status, chat.length]);
 
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+  // Function to fetch current track
+  const getCurrentTrack = async () => {
+    if (!session?.accessToken) return;
+    
+    try {
+      const response = await fetch('/api/spotify/now-playing');
+      const data = await response.json();
+      
+      if (data.playing && data.track) {
+        const newTrackId = `${data.track.name}-${data.track.artists[0].name}`;
+        if (newTrackId !== lastChecked) {
+          setCurrentTrack(data.track);
+          setLastChecked(newTrackId);
+        }
+      } else {
+        setCurrentTrack(null);
+      }
+    } catch (error) {
+      console.error('Error fetching current track:', error);
     }
-  }, [chat]);
+  };
 
+  // Handle chat submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim()) return;
 
     setLoading(true);
-    setChat(prev => [...prev, { role: 'user', content: message }]);
+    const newUserMessage = { role: 'user', content: message };
+    setChat(prev => [...prev, newUserMessage]);
+    setMessage('');
     
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ 
+          message,
+          conversationHistory: chat.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          }))
+        }),
       });
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       
       const data = await response.json();
-      
       setChat(prev => [...prev, { 
         role: 'assistant', 
         content: data.response,
-        musicData: {
-          spotifyData: data.spotifyData,
-          musicNerdData: data.musicNerdData
-        },
-        currentTrack: data.currentTrack
+        currentTrack: data.currentTrack,
+        artistInfo: data.artistInfo
       }]);
     } catch (error) {
       console.error('Error:', error);
@@ -118,38 +115,30 @@ export default function Home() {
       }]);
     } finally {
       setLoading(false);
-      setMessage('');
     }
   };
 
-  const getCurrentTrack = async () => {
-    if (status === 'authenticated' && session?.accessToken) {
-      try {
-        const response = await fetch('/api/spotify/now-playing');
-        const data: NowPlayingResponse = await response.json();
-        
-        if (data.playing && data.track) {
-          setCurrentTrack(data.track);
-          setIsPlaying(true);
-        } else {
-          setCurrentTrack(null);
-          setIsPlaying(false);
-        }
-      } catch (error) {
-        console.error('Error fetching current track:', error);
-        setCurrentTrack(null);
-        setIsPlaying(false);
-      }
-    }
-  };
-
+  // Check for track changes
   useEffect(() => {
-    if (status === 'authenticated') {
+    if (session?.accessToken) {
       getCurrentTrack();
-      const interval = setInterval(getCurrentTrack, 30000);
+      const interval = setInterval(async () => {
+        const response = await fetch('/api/spotify/now-playing/check', {
+          method: 'HEAD'
+        });
+        if (response.status === 200) {
+          getCurrentTrack();
+        }
+      }, 30000);
+
       return () => clearInterval(interval);
     }
-  }, [status, session]);
+  }, [session]);
+
+  const handleReauthorize = async () => {
+    await signOut({ redirect: false });
+    await signIn('spotify');
+  };
 
   return (
     <main className="min-h-screen bg-black p-4 md:p-8">
@@ -187,13 +176,23 @@ export default function Home() {
           )}
         </div>
 
-        {/* Only show Currently Playing when there's a track */}
+        {/* Now Playing Widget - Make sure this is visible */}
         {isPlaying && currentTrack && (
           <div className="mb-4 p-4 bg-white/10 rounded-lg">
             <p className="text-white/80">Currently Playing:</p>
-            <p className="text-white font-bold">
-              {currentTrack.name} - {currentTrack.artists[0].name}
-            </p>
+            <div className="text-white">
+              <p className="font-bold text-lg">
+                {currentTrack.name}
+              </p>
+              <p className="text-white/80">
+                {currentTrack.artists.map(artist => artist.name).join(', ')}
+              </p>
+              {currentTrack.album && (
+                <p className="text-sm text-white/60">
+                  Album: {currentTrack.album}
+                </p>
+              )}
+            </div>
           </div>
         )}
 
@@ -249,6 +248,15 @@ export default function Home() {
         <div className="text-center mt-4 text-gray-400 text-sm">
           Powered by Spotify API & Claude
         </div>
+
+        {session?.error === 'RefreshAccessTokenError' && (
+          <button
+            onClick={handleReauthorize}
+            className="bg-red-500 text-white px-4 py-2 rounded"
+          >
+            Re-authenticate with Spotify
+          </button>
+        )}
       </div>
     </main>
   );

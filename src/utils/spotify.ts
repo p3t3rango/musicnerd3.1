@@ -1,4 +1,6 @@
 import SpotifyWebApi from 'spotify-web-api-node';
+import { getMusicBrainzData } from './musicbrainz';
+import { getMusicNerdData } from './musicnerd';
 
 export const spotifyApi = new SpotifyWebApi({
   clientId: process.env.SPOTIFY_CLIENT_ID,
@@ -16,27 +18,53 @@ export const getCurrentTrack = async (accessToken: string) => {
     spotifyApi.setAccessToken(accessToken);
     const data = await spotifyApi.getMyCurrentPlayingTrack();
     
-    console.log('Raw Spotify Response:', {
-      hasBody: !!data.body,
-      hasItem: !!(data.body && data.body.item),
-      isPlaying: data.body?.is_playing
-    });
-    
     if (!data.body || !data.body.item) {
       console.log('No track currently playing');
       return null;
     }
 
     const track = data.body.item;
+    const artistName = track.artists[0].name;
+    console.log('Track ID:', track.id); // Debug log
+    
+    // Basic track info that doesn't require additional API calls
     const trackInfo = {
       name: track.name,
       artists: track.artists.map(artist => artist.name),
       album: track.album.name,
       url: track.external_urls.spotify
     };
-    
-    console.log('Processed track info:', trackInfo);
-    return trackInfo;
+
+    // Get data from all sources in parallel
+    const [audioFeatures, musicBrainzData, musicNerdData] = await Promise.all([
+      spotifyApi.getAudioFeaturesForTrack(track.id).catch(() => null),
+      getMusicBrainzData(artistName).catch(() => null),
+      getMusicNerdData(track.artists[0].id, artistName).catch(() => null)
+    ]);
+
+    return {
+      ...trackInfo,
+      features: audioFeatures?.body ? {
+        key: audioFeatures.body.key,
+        mode: audioFeatures.body.mode,
+        tempo: audioFeatures.body.tempo,
+        timeSignature: audioFeatures.body.time_signature,
+        danceability: audioFeatures.body.danceability,
+        energy: audioFeatures.body.energy,
+        instrumentalness: audioFeatures.body.instrumentalness,
+        acousticness: audioFeatures.body.acousticness,
+        valence: audioFeatures.body.valence,
+        loudness: audioFeatures.body.loudness
+      } : null,
+      artistInfo: {
+        ...musicBrainzData,
+        musicNerd: musicNerdData?.artist,
+        social: {
+          twitter: musicNerdData?.socialMedia.twitter,
+          // Add other social platforms
+        }
+      }
+    };
   } catch (error) {
     console.error('Error in getCurrentTrack:', error);
     return null;
@@ -117,5 +145,115 @@ export const getTrackFeatures = async (accessToken: string, trackId: string) => 
     energy: data.body.energy,
     valence: data.body.valence, // musical positiveness
     instrumentalness: data.body.instrumentalness
+  };
+};
+
+interface UserMusicProfile {
+  recentTracks: Track[];
+  topTracks: Track[];
+  topArtists: Artist[];
+  topGenres: string[];
+  favoriteFeatures: AudioFeatures;
+  playlists: Playlist[];
+  listeningPatterns: {
+    preferredGenres: string[];
+    timeOfDay: string[];
+    acousticness: number;
+    danceability: number;
+    energy: number;
+    instrumentalness: number;
+    valence: number;
+  };
+}
+
+export const buildUserMusicProfile = async (accessToken: string): Promise<UserMusicProfile> => {
+  spotifyApi.setAccessToken(accessToken);
+  
+  // Fetch all data in parallel
+  const [
+    recentTracks,
+    topTracks,
+    topArtists,
+    playlists,
+    savedTracks,
+    followedArtists
+  ] = await Promise.all([
+    getRecentlyPlayed(accessToken),
+    getTopTracks(accessToken),
+    getTopArtists(accessToken),
+    getUserPlaylists(accessToken),
+    spotifyApi.getMySavedTracks({ limit: 50 }),
+    spotifyApi.getFollowedArtists({ limit: 50 })
+  ]);
+
+  // Analyze audio features of top and saved tracks
+  const trackIds = [...topTracks, ...savedTracks.body.items.map(item => item.track)]
+    .map(track => track.id)
+    .slice(0, 100); // Limit to 100 tracks for analysis
+
+  const audioFeatures = await spotifyApi.getAudioFeaturesForTracks(trackIds);
+
+  // Calculate average features
+  const averageFeatures = audioFeatures.body.audio_features.reduce((acc, features) => ({
+    acousticness: acc.acousticness + features.acousticness,
+    danceability: acc.danceability + features.danceability,
+    energy: acc.energy + features.energy,
+    instrumentalness: acc.instrumentalness + features.instrumentalness,
+    valence: acc.valence + features.valence
+  }), {
+    acousticness: 0,
+    danceability: 0,
+    energy: 0,
+    instrumentalness: 0,
+    valence: 0
+  });
+
+  Object.keys(averageFeatures).forEach(key => {
+    averageFeatures[key] /= audioFeatures.body.audio_features.length;
+  });
+
+  // Extract genres from top artists and followed artists
+  const allArtists = [...topArtists, ...followedArtists.body.artists.items];
+  const genreCounts = allArtists.reduce((acc, artist) => {
+    artist.genres?.forEach(genre => {
+      acc[genre] = (acc[genre] || 0) + 1;
+    });
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Get top genres
+  const topGenres = Object.entries(genreCounts)
+    .sort(([,a], [,b]) => b - a)
+    .slice(0, 10)
+    .map(([genre]) => genre);
+
+  // Analyze listening patterns by time
+  const timePatterns = recentTracks.reduce((acc, track) => {
+    const hour = new Date(track.playedAt).getHours();
+    const timeOfDay = hour < 6 ? 'night' : 
+                     hour < 12 ? 'morning' : 
+                     hour < 18 ? 'afternoon' : 'evening';
+    acc[timeOfDay] = (acc[timeOfDay] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  return {
+    recentTracks,
+    topTracks,
+    topArtists,
+    topGenres,
+    favoriteFeatures: averageFeatures,
+    playlists: playlists.map(playlist => ({
+      name: playlist.name,
+      tracks: playlist.tracks,
+      public: playlist.public
+    })),
+    listeningPatterns: {
+      preferredGenres: topGenres,
+      timeOfDay: Object.entries(timePatterns)
+        .sort(([,a], [,b]) => b - a)
+        .map(([time]) => time),
+      ...averageFeatures
+    }
   };
 }; 
