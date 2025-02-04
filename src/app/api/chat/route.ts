@@ -11,7 +11,7 @@ const anthropic = new Anthropic({
 
 interface TopTrack {
   name: string;
-  artists: { name: string }[];
+  artists: string[];
   album: string;
   url: string;
 }
@@ -25,10 +25,10 @@ interface TopArtist {
 
 interface RecentTrack {
   name: string;
-  artists: { name: string }[];
+  artists: string[];
   album: string;
-  playedAt: string;
   url: string;
+  playedAt: string;
 }
 
 // Base prompt that doesn't change
@@ -58,10 +58,10 @@ export async function POST(req: Request) {
 
     try {
       [currentTrack, topTracks, topArtists, recentlyPlayed] = await Promise.all([
-        getCurrentTrack(session.accessToken),
-        getTopTracks(session.accessToken),
-        getTopArtists(session.accessToken),
-        getRecentlyPlayed(session.accessToken)
+        getCurrentTrack(session.accessToken) as Promise<SpotifyTrack | null>,
+        getTopTracks(session.accessToken) as Promise<TopTrack[]>,
+        getTopArtists(session.accessToken) as Promise<any[]>,
+        getRecentlyPlayed(session.accessToken) as Promise<RecentTrack[]>
       ]);
     } catch (error) {
       console.error('Error fetching music context:', error);

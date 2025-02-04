@@ -81,7 +81,11 @@ export default function Home() {
     if (!message.trim()) return;
 
     setLoading(true);
-    const newUserMessage = { role: 'user', content: message };
+    const newUserMessage: ChatMessageType = {
+      role: 'user',
+      content: message
+    };
+    
     setChat(prev => [...prev, newUserMessage]);
     setMessage('');
     
@@ -101,18 +105,21 @@ export default function Home() {
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       
       const data = await response.json();
-      setChat(prev => [...prev, { 
+      const assistantMessage: ChatMessageType = { 
         role: 'assistant', 
         content: data.response,
         currentTrack: data.currentTrack,
         artistInfo: data.artistInfo
-      }]);
+      };
+      
+      setChat(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error('Error:', error);
-      setChat(prev => [...prev, { 
+      const errorMessage: ChatMessageType = { 
         role: 'assistant', 
         content: 'Sorry, I encountered an error. Please try again.' 
-      }]);
+      };
+      setChat(prev => [...prev, errorMessage]);
     } finally {
       setLoading(false);
     }
@@ -185,7 +192,7 @@ export default function Home() {
                 {currentTrack.name}
               </p>
               <p className="text-white/80">
-                {currentTrack.artists.map(artist => artist.name).join(', ')}
+                {currentTrack.artists.map((artist: string) => artist).join(', ')}
               </p>
               {currentTrack.album && (
                 <p className="text-sm text-white/60">

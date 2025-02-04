@@ -3,6 +3,7 @@ import { authOptions } from '../../auth/config';
 import { NextResponse } from 'next/server';
 import { getCurrentTrack, getRecentlyPlayed, getTopTracks } from '@/utils/spotify';
 import { Anthropic } from '@anthropic-ai/sdk';
+import { SpotifyTrack } from '@/types';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY ?? '',
@@ -17,8 +18,8 @@ export async function GET() {
 
     const [currentTrack, recentTracks, topTracks] = await Promise.all([
       getCurrentTrack(session.accessToken).catch(() => null),
-      getRecentlyPlayed(session.accessToken).catch(() => []),
-      getTopTracks(session.accessToken, 'short_term').catch(() => [])
+      getRecentlyPlayed(session.accessToken).catch(() => [] as SpotifyTrack[]),
+      getTopTracks(session.accessToken, 'short_term').catch(() => [] as SpotifyTrack[])
     ]);
 
     let welcomePrompt = `You are Zane Lowe, casually greeting someone who just opened the chat. You're like a friend who's excited to talk music with them. Make a brief, engaging observation or comment about what they're listening to or their music taste. Keep it natural and conversational, as if you just noticed what's playing.
@@ -30,11 +31,15 @@ If they're currently playing something, react to that first. If not, comment on 
     }
 
     if (recentTracks.length) {
-      welcomePrompt += `\n\nTheir recent tracks: ${recentTracks.slice(0,2).map(t => `"${t.name}" by ${t.artists[0]}`).join(', ')}`;
+      welcomePrompt += `\n\nTheir recent tracks: ${recentTracks.slice(0,2).map((track: SpotifyTrack) => 
+        `"${track.name}" by ${track.artists.join(', ')}`
+      ).join(', ')}`;
     }
 
     if (topTracks.length) {
-      welcomePrompt += `\n\nTheir current favorites: ${topTracks.slice(0,2).map(t => `"${t.name}" by ${t.artists[0]}`).join(', ')}`;
+      welcomePrompt += `\n\nTheir current favorites: ${topTracks.slice(0,2).map((track: SpotifyTrack) => 
+        `"${track.name}" by ${track.artists.join(', ')}`
+      ).join(', ')}`;
     }
 
     const response = await anthropic.messages.create({

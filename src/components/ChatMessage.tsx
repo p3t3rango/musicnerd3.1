@@ -1,19 +1,23 @@
-import { ArtistLinks } from './ArtistLinks';
 import { SupportLinks } from './SupportLinks';
+import { ChatMessage as ChatMessageType } from '@/types';
 
-export const ChatMessage = ({ message }) => {
+interface ChatMessageProps {
+  message: ChatMessageType;
+}
+
+export const ChatMessage = ({ message }: ChatMessageProps) => {
   return (
     <div className={`chat-message ${message.role === 'assistant' ? 'assistant' : 'user'}`}>
       <div className="message-content">
         {message.content}
       </div>
       
-      {message.role === 'assistant' && message.artistInfo && (
+      {message.role === 'assistant' && 
+       message.artistInfo?.supportLinks && (
         <div className="mt-4 space-y-2">
-          <ArtistLinks artistInfo={message.artistInfo} />
           <SupportLinks 
             links={message.artistInfo.supportLinks}
-            artistName={message.artistInfo.name}
+            artistName={message.artistInfo.name || 'Artist'}
           />
         </div>
       )}

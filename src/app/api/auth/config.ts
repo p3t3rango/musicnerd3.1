@@ -1,5 +1,13 @@
 import { AuthOptions } from 'next-auth';
 import SpotifyProvider from 'next-auth/providers/spotify';
+import { JWT } from 'next-auth/jwt';
+
+interface ExtendedToken extends JWT {
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  error?: string;
+}
 
 export const authOptions: AuthOptions = {
   providers: [
@@ -25,14 +33,15 @@ export const authOptions: AuthOptions = {
     })
   ],
   callbacks: {
-    async jwt({ token, account }) {
+    async jwt({ token, account }): Promise<ExtendedToken> {
       if (account) {
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
       }
       
-      if (token.expiresAt && Date.now() >= token.expiresAt * 1000) {
+      const now = Date.now() / 1000;
+      if (token.expiresAt && typeof token.expiresAt === 'number' && now >= token.expiresAt) {
         try {
           const response = await fetch('https://accounts.spotify.com/api/token', {
             method: 'POST',
