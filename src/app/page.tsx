@@ -1,260 +1,147 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { useSession, signIn, signOut } from 'next-auth/react';
-import Image from 'next/image';
-import ChatMessage from './components/ChatMessage';
-
-// Move interfaces to separate types file
-import { SpotifyTrack, ChatMessage as ChatMessageType } from '@/types';
+import { useState, useEffect } from 'react';
+import { useSession, signIn } from 'next-auth/react';
+import ArtistSearch from '@/components/ArtistSearch';
+import ArtistPanel from '@/components/ArtistPanel';
+import ArtistChat from '@/components/ArtistChat';
+import { Artist, ChatMessageType } from '@/types';
+import { motion, AnimatePresence } from 'framer-motion';
+import MusicNerdChat from '@/components/MusicNerdChat';
 
 export default function Home() {
   const { data: session, status } = useSession();
-  const [currentTrack, setCurrentTrack] = useState<SpotifyTrack | null>(null);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [message, setMessage] = useState('');
+  const [selectedArtist, setSelectedArtist] = useState<Artist | null>(null);
   const [chat, setChat] = useState<ChatMessageType[]>([]);
   const [loading, setLoading] = useState(false);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-  const [lastChecked, setLastChecked] = useState<string>('');
+  const [searchLoading, setSearchLoading] = useState(false);
 
-  // Scroll to bottom when chat updates
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+  const handleArtistSelect = async (artist: Artist) => {
+    setSelectedArtist(artist);
+    setSearchLoading(true);
+    try {
+      const response = await fetch('/api/bio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artist: artist,
+          prompt: `Generate a concise, informative bio for ${artist.name}. Focus on their musical journey, significant achievements, and artistic style. Keep it professional and factual.`
+        })
+      });
+      
+      const data = await response.json();
+      setChat([data]);
+    } catch (error) {
+      console.error('Bio generation error:', error);
+    } finally {
+      setSearchLoading(false);
     }
-  }, [chat]);
+  };
 
-  // Get initial welcome message
-  useEffect(() => {
-    const getWelcome = async () => {
-      if (status === 'authenticated' && chat.length === 0) {
-        try {
-          const response = await fetch('/api/chat/welcome');
-          const data = await response.json();
-          
-          if (data.welcome) {
-            setChat([{
-              role: 'assistant',
-              content: data.welcome,
-              currentTrack: data.currentTrack,
-              musicProfile: {
-                recentTracks: data.recentTracks,
-                topTracks: data.topTracks
-              }
-            }]);
-          }
-        } catch (error) {
-          console.error('Error getting welcome message:', error);
-        }
-      }
-    };
-
-    getWelcome();
-  }, [status, chat.length]);
-
-  // Poll for current track
-  useEffect(() => {
-    if (!session) return;
-
-    const checkCurrentTrack = async () => {
-      try {
-        const response = await fetch('/api/spotify/now-playing/check');
-        if (response.status === 200) {
-          const trackData = await fetch('/api/spotify/now-playing').then(res => res.json());
-          if (trackData.playing) {
-            setCurrentTrack(trackData.track);
-          }
-        }
-      } catch (error) {
-        console.error('Error checking current track:', error);
-      }
-    };
-
-    // Check immediately and then every 30 seconds
-    checkCurrentTrack();
-    const interval = setInterval(checkCurrentTrack, 30000);
-    return () => clearInterval(interval);
-  }, [session]);
-
-  // Handle chat submission
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!message.trim()) return;
-
+  const handleFollowUpQuestion = async (question: string) => {
+    if (!selectedArtist) return;
+    
     setLoading(true);
-    const newUserMessage: ChatMessageType = {
-      role: 'user',
-      content: message
-    };
-    
-    setChat(prev => [...prev, newUserMessage]);
-    setMessage('');
-    
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message,
-          conversationHistory: chat.map(msg => ({
-            role: msg.role,
-            content: msg.content
-          }))
-        }),
+        body: JSON.stringify({
+          message: question,
+          artist: selectedArtist,
+          conversationHistory: chat
+        })
       });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
       
       const data = await response.json();
-      
-      // Debug log the response
-      console.log('Frontend received response:', {
-        responseData: data,
-        contentLength: data.content?.length,
-        content: data.content
-      });
-
-      const assistantMessage: ChatMessageType = { 
-        role: 'assistant', 
-        content: data.content,
-        currentTrack: data.currentTrack,
-        artistInfo: data.artistInfo
-      };
-      
-      console.log('Message being added to chat:', assistantMessage);
-      
-      setChat(prev => [...prev, assistantMessage]);
+      setChat(prev => [...prev, 
+        { role: 'user', content: question },
+        data
+      ]);
     } catch (error) {
-      console.error('Chat Error:', error);
-      const errorMessage: ChatMessageType = { 
-        role: 'assistant', 
-        content: 'Sorry, I encountered an error. Please try again.' 
-      };
-      setChat(prev => [...prev, errorMessage]);
+      console.error('Chat error:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleReauthorize = async () => {
-    await signOut({ redirect: false });
-    await signIn('spotify');
-  };
-
   return (
-    <main className="min-h-screen bg-black p-4 md:p-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Header with Login */}
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-5xl font-bold text-[#FF1493] text-center">
-            MusicNerd
-          </h1>
-          {!session ? (
-            <button
-              onClick={() => signIn('spotify')}
-              className="bg-[#1DB954] text-white px-4 py-2 rounded-full hover:bg-[#1ed760] transition-colors"
-            >
-              Connect Spotify
-            </button>
-          ) : (
-            <div className="flex items-center gap-4">
-              {session.user?.image && (
-                <Image
-                  src={session.user.image}
-                  alt="Profile"
-                  width={40}
-                  height={40}
-                  className="rounded-full"
-                />
-              )}
-              <button
-                onClick={() => signOut()}
-                className="text-white/80 hover:text-white"
-              >
-                Logout
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Now Playing Widget */}
-        {currentTrack && (
-          <div className="bg-white/10 p-4 rounded-lg mb-4">
-            <h2 className="text-white font-semibold mb-2">Now Playing</h2>
-            <div className="flex items-center gap-4">
-              <div>
-                <p className="text-white text-lg font-medium">
-                  {currentTrack.name}
-                </p>
-                <p className="text-white/80">
-                  {currentTrack.artists.join(', ')}
-                </p>
-                {currentTrack.album && (
-                  <p className="text-white/60 text-sm">
-                    {currentTrack.album}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Chat Container */}
-        <div 
-          ref={chatContainerRef}
-          className="chat-container h-[600px] mb-4 p-4 overflow-y-auto"
+    <main className="min-h-screen bg-black p-4 md:p-8 overflow-x-hidden">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center justify-between mb-8"
         >
-          <div className="max-w-full overflow-visible">
-            {chat.map((msg, index) => (
-              <ChatMessage key={index} message={msg} />
-            ))}
-          </div>
-          
-          {loading && (
-            <div className="flex items-center justify-center p-4">
-              <div className="animate-pulse text-[#FF1493]">
-                Thinking...
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Input Form */}
-        <form onSubmit={handleSubmit} className="relative">
-          <div className="input-container flex items-center p-2">
-            <input
-              type="text"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              className="flex-1 bg-transparent text-white p-2 focus:outline-none"
-              placeholder="Ask about any song, artist, or album..."
-            />
-            <button
-              type="submit"
-              disabled={loading}
-              className="send-button px-6 py-2 rounded-md text-white font-semibold disabled:opacity-50"
+          <h1 className="text-5xl font-bold text-[#FF1493]">MusicNerd</h1>
+          {status !== 'loading' && !session && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => signIn('spotify')}
+              className="px-6 py-2 bg-[#FF1493] text-white rounded-full"
             >
-              Send
-            </button>
-          </div>
-        </form>
+              Sign in with Spotify
+            </motion.button>
+          )}
+        </motion.div>
 
-        {/* Footer */}
-        <div className="text-center mt-4 text-gray-400 text-sm">
-          Powered by Spotify API & Claude
-        </div>
-
-        {session?.error === 'RefreshAccessTokenError' && (
-          <button
-            onClick={handleReauthorize}
-            className="bg-red-500 text-white px-4 py-2 rounded"
+        {/* Main Search */}
+        {session && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            className="mb-8"
           >
-            Re-authenticate with Spotify
-          </button>
+            <ArtistSearch onArtistSelect={handleArtistSelect} />
+          </motion.div>
         )}
+
+        {/* Loading State */}
+        {searchLoading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center py-12"
+          >
+            <div className="inline-block animate-spin text-pink-500 text-4xl mb-4">
+              ⭐
+            </div>
+            <p className="text-white/80">
+              Gathering information about {selectedArtist?.name}...
+            </p>
+          </motion.div>
+        )}
+
+        {/* Artist Info Panel */}
+        <AnimatePresence mode="wait">
+          {selectedArtist && chat[0] && !searchLoading && chat[0].artistData && (
+            <>
+              <motion.div
+                key={selectedArtist.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+                className="mt-8"
+              >
+                <ArtistPanel 
+                  artist={selectedArtist}
+                  bio={chat[0].content}
+                  musicNerdData={chat[0].artistData}
+                  loading={loading}
+                />
+              </motion.div>
+              
+              <MusicNerdChat 
+                artist={selectedArtist}
+                initialBio={chat[0].content}
+              />
+            </>
+          )}
+        </AnimatePresence>
       </div>
     </main>
   );

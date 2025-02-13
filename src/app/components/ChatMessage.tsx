@@ -1,105 +1,76 @@
 import React from 'react';
+import { ChatMessageType, SupportLinks as SupportLinksType } from '@/types';
 import SupportLinks from './SupportLinks';
 
 interface ChatMessageProps {
-  message: {
-    role: string;
-    content: string;
-    musicData?: {
-      spotifyData: any[];
-      musicNerdData: any[];
-    };
-    currentTrack?: {
-      name: string;
-      artists: string[];
-      album: string;
-      url: string;
-    };
-  };
+  message: ChatMessageType;
 }
 
+// Helper function to format support links
+const formatSupportLinks = (links: SupportLinksType = {}) => {
+  const formattedLinks: Record<string, string> = {};
+  
+  if (links.soundxyz) formattedLinks.soundxyz = links.soundxyz;
+  if (links.bandcamp) formattedLinks.bandcamp = links.bandcamp;
+  if (links.official) formattedLinks.official = links.official;
+  // Add single links for arrays
+  if (links.merch?.[0]) formattedLinks.merch = links.merch[0];
+  if (links.vinyl?.[0]) formattedLinks.vinyl = links.vinyl[0];
+  if (links.other?.[0]) formattedLinks.other = links.other[0];
+  
+  return formattedLinks;
+};
+
 export default function ChatMessage({ message }: ChatMessageProps) {
-  const extractSupportLinks = (musicData: any) => {
-    // Early return if no music data
-    if (!musicData?.musicNerdData || !Array.isArray(musicData.musicNerdData)) {
-      return [];
-    }
-    
-    const platforms: any[] = [];
-    
-    try {
-      musicData.musicNerdData.forEach((data: any) => {
-        if (data?.musicNerdInfo?.artistData) {
-          const { artistData } = data.musicNerdInfo;
-          
-          // Add available platforms with null check
-          if (artistData.soundxyz) {
-            platforms.push({
-              type: 'sound.xyz',
-              url: artistData.soundxyz,
-              icon: '/icons/soundxyz.svg'
-            });
-          }
-          if (artistData.catalog) {
-            platforms.push({
-              type: 'catalog',
-              url: artistData.catalog,
-              icon: '/icons/catalog.svg'
-            });
-          }
-          if (artistData.zora) {
-            platforms.push({
-              type: 'zora',
-              url: artistData.zora,
-              icon: '/icons/zora.svg'
-            });
-          }
-          if (artistData.beatport) {
-            platforms.push({
-              type: 'beatport',
-              url: artistData.beatport,
-              icon: '/icons/beatport.svg'
-            });
-          }
-          if (artistData.bandlab) {
-            platforms.push({
-              type: 'bandlab',
-              url: artistData.bandlab,
-              icon: '/icons/bandlab.svg'
-            });
-          }
-        }
-      });
-    } catch (error) {
-      console.error('Error extracting support links:', error);
-      return [];
-    }
-    
-    return platforms;
-  };
+  const supportLinks = message.searchedArtist?.supportLinks || message.currentTrack?.artistInfo?.supportLinks;
+  const formattedLinks = supportLinks ? formatSupportLinks(supportLinks) : null;
 
   return (
     <div className={`message-bubble ${
       message.role === 'user' ? 'user-message' : 'assistant-message'
     }`}>
-      <div className="message-content">
+      {/* Message Content */}
+      <div className="message-content mb-4">
         {message.content}
       </div>
-      
-      {message.role === 'assistant' && message.musicData && (
-        <SupportLinks 
-          platforms={extractSupportLinks(message.musicData)}
-          artistName={message.musicData.spotifyData?.[0]?.artists?.[0]?.name || ''}
-        />
+
+      {/* Support Links Widget */}
+      {formattedLinks && Object.keys(formattedLinks).length > 0 && (
+        <div className="mt-4 p-4 bg-white/10 rounded-lg">
+          <h3 className="text-white font-semibold mb-2">
+            Support {message.searchedArtist?.name || message.currentTrack?.artists[0]}
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(formattedLinks).map(([platform, url]) => (
+              url && (
+                <a
+                  key={platform}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1 bg-[#FF1493] text-white rounded-full text-sm hover:bg-opacity-80 transition-colors"
+                >
+                  {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                </a>
+              )
+            ))}
+          </div>
+        </div>
       )}
 
+      {/* Now Playing Widget */}
       {message.currentTrack && (
-        <div className="mt-2 p-2 bg-black/20 rounded">
-          <p className="text-sm">🎵 Currently Playing:</p>
-          <p className="font-medium">
-            {message.currentTrack.name} - {message.currentTrack.artists.join(', ')}
+        <div className="mt-2 p-4 bg-white/10 rounded-lg">
+          <h3 className="text-white font-semibold mb-2">Now Playing</h3>
+          <p className="font-medium text-white">
+            {message.currentTrack.name}
           </p>
-          <p className="text-sm opacity-75">Album: {message.currentTrack.album}</p>
+          <p className="text-white/80">
+            by {message.currentTrack.artists.join(', ')}
+          </p>
+          <p className="text-sm text-white/60">
+            Album: {message.currentTrack.album}
+          </p>
         </div>
       )}
     </div>

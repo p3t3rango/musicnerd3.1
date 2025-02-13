@@ -2,55 +2,78 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/config';
 import { NextResponse } from 'next/server';
 import { Anthropic } from '@anthropic-ai/sdk';
-import { getCurrentTrack, getTopTracks, getTopArtists, getRecentlyPlayed } from '@/utils/spotify';
+import { getCurrentTrack } from '@/utils/spotify';
 import { SpotifyTrack } from '@/types';
+import { getMusicNerdData } from '@/utils/musicnerd';
+import { ChatMessageType } from '@/types';
+import { Artist } from '@/types';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY?.trim() || '',
 });
 
-interface TopTrack {
-  name: string;
-  artists: string[];
-  album: string;
-  url: string;
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
-interface TopArtist {
-  name: string;
-  genres: string[];
-  popularity: number;
-  url: string;
-}
-
-interface RecentTrack {
-  name: string;
-  artists: string[];
-  album: string;
-  url: string;
-  playedAt: string;
+interface RequestBody {
+  message: string;
+  conversationHistory?: ChatMessageType[];
 }
 
 // Base prompt that doesn't change
-const BASE_PROMPT = `You are Zane, a passionate music nerd who loves connecting with people over music. STRICT RESPONSE RULES:
+const BASE_PROMPT = `You are Zane, a music enthusiast who helps people discover and support artists. Your responses should:
 
-1. First response structure (EXACTLY THREE SENTENCES):
-   - ONE welcome: "Hey there!" or similar (under 5 words)
-   - ONE insight about their music (under 15 words)
-   - ONE question about the song (under 10 words)
-   TOTAL LENGTH MUST BE UNDER 35 WORDS.
+1. Search Inquiries:
+   - When user searches for an artist, focus entirely on that artist first
+   - Share specific insights about their music/style
+   - If they have support links, say: "I see they have some ways to support their work directly!"
+   - Let the UI handle displaying the support links
 
-2. Follow-up responses (EXACTLY):
-   - TWO sentences maximum
-   - Must end with a question
-   - Total 30 words maximum
+2. Current Playback Context:
+   - If user is playing something different from their search:
+     "I notice you're currently playing [Current Artist]. Interesting contrast with [Searched Artist]!"
+   - Only mention current playback if it's relevant to the discussion
 
-3. After 3 messages about an artist/track, engage user about artist support:
-   - Ask if they've ever supported the artist in any way
-   - Share quick fact about how direct support helps artists
-   - Let the UI handle showing support links
+3. Response Structure:
+   - First: Direct response about searched/discussed artist
+   - Then: Mention support links if available
+   - Finally: Ask a focused question about that same artist
 
-NEVER deviate from these formats.`;
+4. Example Flow:
+   User: "Tell me about Artist X"
+   Zane: "Artist X has a unique approach to [genre/style]! [Support link mention if available] What draws you to their music?"
+
+Remember: Stay focused on the artist being discussed - don't suggest others until thoroughly exploring the current one.`;
+
+// Helper function to count artist mentions
+const countArtistMentions = (history: ChatMessageType[], artistName: string): number => {
+  console.log('Checking mentions for:', artistName);
+  const mentions = history?.filter(msg => 
+    msg.content.toLowerCase().includes(artistName.toLowerCase())
+  ).length || 0;
+  console.log(`Found ${mentions} mentions of ${artistName}`);
+  return mentions;
+};
+
+// Add helper function to get artist data from MusicNerd
+async function getMusicNerdArtistData(artistName: string) {
+  try {
+    const response = await fetch('https://api.musicnerd.xyz/api/findTwitterHandle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: artistName })
+    });
+    
+    const artistData = await response.json();
+    console.log('MusicNerd Artist Data:', artistData);
+    return artistData;
+  } catch (error) {
+    console.error('Error fetching MusicNerd artist data:', error);
+    return null;
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -64,124 +87,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const body = await req.json();
-    if (!body.message) {
-      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
-    }
+    const { message, artist, conversationHistory, isGreeting, persona } = await req.json();
 
-    // Get user's music context with error handling
-    let currentTrack: SpotifyTrack | null = null;
-    let topTracks: TopTrack[] = [];
-    let topArtists: TopArtist[] = [];
-    let recentlyPlayed: RecentTrack[] = [];
+    const response = await anthropic.messages.create({
+      model: "claude-3-sonnet-20240229",
+      max_tokens: 150,  // Limit token length for shorter responses
+      temperature: 0.9,
+      system: `You are Zane, a friendly and knowledgeable music nerd. Keep your responses brief and engaging.
+      Important guidelines:
+      - Keep responses under 2-3 sentences
+      - Be casual and conversational
+      - Focus on interesting, lesser-known facts
+      - Avoid lengthy explanations
+      - End with short, specific questions`,
+      messages: [
+        ...(conversationHistory?.map((msg: ChatMessageType) => ({
+          role: msg.role,
+          content: msg.content
+        })) || []),
+        { role: "user", content: message }
+      ],
+    });
 
-    try {
-      [currentTrack, topTracks, topArtists, recentlyPlayed] = await Promise.all([
-        getCurrentTrack(session.accessToken) as Promise<SpotifyTrack | null>,
-        getTopTracks(session.accessToken) as Promise<TopTrack[]>,
-        getTopArtists(session.accessToken) as Promise<any[]>,
-        getRecentlyPlayed(session.accessToken) as Promise<RecentTrack[]>
-      ]);
-    } catch (error) {
-      console.error('Error fetching music context:', error);
-    }
+    return NextResponse.json({
+      role: 'assistant',
+      content: response.content[0].text,
+      artistData: artist
+    });
 
-    // Create minimal context message
-    const contextMessage = currentTrack 
-      ? `Now playing: "${currentTrack.name}" by ${currentTrack.artists.join(', ')}"` 
-      : 'No track currently playing';
-
-    // In the POST function, before AI call
-    const musicContext = `
-    ${currentTrack ? `Currently playing: "${currentTrack.name}" by ${currentTrack.artists.join(', ')}"` : ''}
-    ${recentlyPlayed.length ? `Recent tracks: ${recentlyPlayed[0].name} by ${recentlyPlayed[0].artists.join(', ')}` : ''}
-    Message count: ${body.conversationHistory?.length || 0} - If over 2 messages about same artist, strongly encourage supporting them directly.
-    `;
-
-    try {
-      const response = await anthropic.messages.create({
-        model: 'claude-3-sonnet-20240229',
-        max_tokens: 2048,
-        temperature: 0.7,
-        system: `${BASE_PROMPT}\n\nMusic Context: ${musicContext.trim()}`,
-        messages: [
-          ...body.conversationHistory || [],
-          {
-            role: 'user',
-            content: `${body.message}\n\n${
-              body.conversationHistory?.length === 0 
-                ? 'FIRST RESPONSE FORMAT: Welcome (5 words). Insight (15 words). Question (10 words). EXACTLY THREE SENTENCES.'
-                : 'Keep response between 30-50 words. End with a short question.'
-            }`
-          }
-        ]
-      });
-
-      // Detailed logging of the raw response
-      console.log('=== AI RESPONSE DEBUG ===');
-      console.log('Raw response object:', response);
-      console.log('Content array length:', response.content.length);
-      console.log('First content item:', response.content[0]);
-      console.log('Text length:', response.content[0].text.length);
-      console.log('Full text:', response.content[0].text);
-      console.log('=== END DEBUG ===');
-
-      let completeResponse = response.content[0].text;
-      
-      // Validate and fix first response if needed
-      if (body.conversationHistory?.length === 0) {
-        const sentences = completeResponse.split(/[.!?]+\s*/);
-        // Ensure exactly three sentences for first response
-        if (sentences.length !== 3) {
-          console.warn('First response wrong length, fixing...');
-          // Extract or generate the three required parts
-          const welcome = sentences[0] || 'Hey there';
-          const insight = sentences[1] || `I see you're listening to ${currentTrack?.name}`;
-          const question = sentences[2] || 'What draws you to this track?';
-          completeResponse = `${welcome}. ${insight}. ${question}?`;
-        }
-        // Ensure it's not too long
-        const words = completeResponse.split(/\s+/);
-        if (words.length > 35) {
-          completeResponse = words.slice(0, 35).join(' ');
-          if (!completeResponse.endsWith('?')) {
-            completeResponse += '?';
-          }
-        }
-      } else {
-        // For follow-up responses, limit to two sentences
-        const sentences = completeResponse.split(/[.!?]+\s*/);
-        if (sentences.length > 2) {
-          completeResponse = sentences.slice(0, 2).join('. ') + '?';
-        }
-      }
-
-      // Ensure it ends with punctuation
-      if (!completeResponse.match(/[.!?]$/)) {
-        completeResponse += '?';
-      }
-
-      // After getting AI response
-      console.log('=== RESPONSE VALIDATION ===');
-      console.log('Is first message:', body.conversationHistory?.length === 0);
-      console.log('Original response:', response.content[0].text);
-      console.log('Sentence count:', response.content[0].text.split(/[.!?]+\s*/).length);
-      console.log('Word count:', response.content[0].text.split(/\s+/).length);
-      console.log('=== END VALIDATION ===');
-
-      return NextResponse.json({
-        role: 'assistant',
-        content: completeResponse,
-        currentTrack,
-        artistInfo: currentTrack?.artistInfo
-      });
-
-    } catch (aiError) {
-      console.error('AI API Error:', aiError);
-      return NextResponse.json({ error: 'AI Service Error' }, { status: 503 });
-    }
   } catch (error) {
-    console.error('Chat Route Error:', error);
+    console.error('Chat error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 } 
