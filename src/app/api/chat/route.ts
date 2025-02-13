@@ -6,7 +6,7 @@ import { getCurrentTrack, getTopTracks, getTopArtists, getRecentlyPlayed } from 
 import { SpotifyTrack } from '@/types';
 
 const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY ?? '',
+  apiKey: process.env.ANTHROPIC_API_KEY?.trim() || '',
 });
 
 interface TopTrack {
@@ -54,6 +54,11 @@ NEVER deviate from these formats.`;
 
 export async function POST(req: Request) {
   try {
+    if (!process.env.ANTHROPIC_API_KEY?.startsWith('sk-ant')) {
+      console.error('Invalid Anthropic API key format');
+      return NextResponse.json({ error: 'Configuration Error' }, { status: 500 });
+    }
+
     const session = await getServerSession(authOptions);
     if (!session?.accessToken) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
